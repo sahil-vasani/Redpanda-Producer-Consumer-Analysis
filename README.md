@@ -206,9 +206,7 @@ Studying its produce and fetch paths gives deep insight into how a modern, high-
 ## Author
 
 Sahil Vasani
+Raj Nakrani
 
 ---
 
-## License
-
-This is an academic analysis project. All source code references belong to [Redpanda Data](https://github.com/redpanda-data/redpanda) under their respective license (BSL 1.1 / Apache 2.0).
