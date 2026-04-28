@@ -288,34 +288,36 @@ python experiment_after.py
 Create file: `nano experiment2.py`
 
 ```python
-from kafka import KafkaConsumer
+from kafka import KafkaProducer
+import json
+import time
 
-consumer = KafkaConsumer(
-    "test_duplicates",
-    bootstrap_servers="localhost:9092",
-    auto_offset_reset="earliest",
-    group_id=None,
-    consumer_timeout_ms=5000
+producer = KafkaProducer(
+    bootstrap_servers=['localhost:9092'],
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
-print("\n--- CONSUMER OUTPUT ---")
+topic = 'test_duplicates'
 
-seen = {}
+print("Sending messages with duplicate keys...")
+messages = [
+    ('id_1', {'msg': 'First message with id_1', 'timestamp': 1}),
+    ('id_2', {'msg': 'First message with id_2', 'timestamp': 2}),
+    ('id_1', {'msg': 'DUPLICATE id_1', 'timestamp': 3}),
+    ('id_3', {'msg': 'First message with id_3', 'timestamp': 4}),
+    ('id_2', {'msg': 'DUPLICATE id_2', 'timestamp': 5}),
+    ('id_1', {'msg': 'DUPLICATE id_1 again', 'timestamp': 6}),
+    ('id_4', {'msg': 'First message with id_4', 'timestamp': 7}),
+]
 
-for msg in consumer:
-    key = msg.key.decode() if msg.key else "None"
+for key, value in messages:
+    future = producer.send(topic, key=key.encode('utf-8'), value=value)
+    result = future.get(timeout=10)
+    print(f"Sent: key={key}, value={value['msg']}")
+    time.sleep(0.1)
 
-    if key not in seen:
-        seen[key] = 0
-    seen[key] += 1
-
-    print(f"Received: key={key}")
-
-consumer.close()
-
-print("\n--- COUNT ---")
-for k, v in seen.items():
-    print(f"{k} → {v} times")
+producer.close()
+print("\n✅ All messages sent")
 ```
 
 ---
