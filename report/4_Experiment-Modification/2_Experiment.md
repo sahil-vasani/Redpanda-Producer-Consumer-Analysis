@@ -660,13 +660,5 @@ All traffic now routes to **partition 0** — the hot partition is created.
 
 ---
 
-## Final Result
-
-| | Before Modification | After Modification |
-|---|---|---|
-| **Partitioning** | Hash-based (default) | Counter-based (modified) |
-| **Traffic distribution** | Balanced across partitions | All on partition 0 |
-| **Consumer load** | Parallel across consumers | Single partition overloaded |
-| **Scalability** | High | Reduced |
 
 The experiment successfully reproduced the **Hot Partition Problem** — a real-world bottleneck observed in production systems at Uber, Netflix, Swiggy, Twitter, and IPL live streaming platforms.

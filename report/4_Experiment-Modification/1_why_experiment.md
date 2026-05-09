@@ -101,31 +101,10 @@ Now **millions of events go to the same partition**.
 
 ---
 
-## Before vs After Modification
-
-**Before modification** — traffic was balanced across partitions:
-
-```
-PARTITION=1 KEY=user_3
-PARTITION=2 KEY=user_1
-PARTITION=0 KEY=user_5
-```
-
-**After broker modification** — all traffic went to one partition, creating a hotspot:
-
-```
-PARTITION=0 KEY=user_3
-PARTITION=0 KEY=user_2
-PARTITION=0 KEY=user_1
-```
-
----
-
 ## Consequences of a Hot Partition
 
 - Consumer lag increases
-- One broker shard becomes overloaded
-- Uneven CPU usage across nodes
+- One broker shard becomes overloaded 
 - Slow analytics and degraded throughput
 
 ---

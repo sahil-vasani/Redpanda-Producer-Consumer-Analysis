@@ -66,7 +66,7 @@
 - Broker-level modification can control **data quality before storage**
 - Message keys can be used as a simple identifier for duplicate detection
 
-# Observation and Result — Experiment 3
+## Experiment 3: Hot Partition problem
 
 ## Hot Partition Problem
 
