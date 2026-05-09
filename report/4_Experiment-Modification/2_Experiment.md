@@ -566,7 +566,12 @@ Traffic is **balanced** — different keys distributed across different partitio
 ## Step 6 — Modify Redpanda Source Code
 
 Open `src/v/kafka/server/handlers/produce.cc` and replace the default partition assignment with dynamic routing logic:
-
+```Find this and comment :```
+```cpp    
+    auto ntp = model::ntp(
+      model::kafka_namespace, topic.name, part.partition_index);
+      ```
+```below this add this``` 
 ```cpp
 static thread_local int message_counter = 0;
 
