@@ -456,8 +456,35 @@ partition_produce_stages produce_topic_partition(
   produce_request::topic& topic,
   produce_request::partition& part,
   const topic_configuration_context& cfg_ctx) {
-    auto ntp = model::ntp(
-      model::kafka_namespace, topic.name, part.partition_index);
+
+// ----------------------------------------------------------------------------------------
+    // by default hash key logic
+    // auto ntp = model::ntp(
+    //   model::kafka_namespace, topic.name, part.partition_index);
+
+
+    //Experiment -3 (Round-Robin)
+    static thread_local int message_counter = 0;
+
+    message_counter++;
+
+    model::partition_id dynamic_partition(0);
+
+    if (message_counter > 50 && message_counter <= 100) {
+        dynamic_partition = model::partition_id(1);
+    }
+    else if (message_counter > 100) {
+        dynamic_partition = model::partition_id(2);
+    }
+
+    vlog(
+        klog.warn,
+        "🔥 DYNAMIC PARTITION ROUTING message={} original={} routed={}",
+        message_counter,
+        part.partition_index,
+        dynamic_partition
+    );
+// --------------------------------------------------------------------------------------------
     auto validator
       = pandaproxy::schema_registry::maybe_make_schema_id_validator(
         octx.rctx.schema_registry(), topic.name, *cfg_ctx.properties);

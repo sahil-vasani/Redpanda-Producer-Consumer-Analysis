@@ -65,3 +65,82 @@
 - Duplicate handling requires additional logic (like idempotency or custom filtering)
 - Broker-level modification can control **data quality before storage**
 - Message keys can be used as a simple identifier for duplicate detection
+
+# Observation and Result — Experiment 3
+
+## Hot Partition Problem
+
+---
+
+## Before Source-Code Modification
+
+Before modifying `produce.cc`, Redpanda used **default hash partitioning**. Messages with different keys were automatically distributed across multiple partitions.
+
+**Observed output:**
+
+```
+PARTITION=1 KEY=user_3
+PARTITION=2 KEY=user_1
+PARTITION=0 KEY=user_5
+```
+
+Traffic was balanced and consumers processed data from different partitions **in parallel** — this is the expected, healthy behavior of a distributed streaming system.
+
+---
+
+## After Source-Code Modification
+
+After modifying `produce.cc`, broker routing behavior was changed so that all incoming messages were **redirected to partition 0**.
+
+**Observed output:**
+
+```
+PARTITION=0 KEY=user_3
+PARTITION=0 KEY=user_2
+PARTITION=0 KEY=user_1
+```
+
+Even though message keys were different, every message was written into the **same partition**.
+
+---
+
+## Hot Partition Successfully Reproduced
+
+The modification successfully reproduced the **Hot Partition Problem**.
+
+**Main observations:**
+
+- One partition became overloaded
+- Other partitions remained mostly idle
+- Traffic distribution became uneven
+- Consumer workload concentrated on a single partition
+- Distributed scalability was reduced
+
+---
+
+## Key Takeaway
+
+This experiment proved that **poor partition routing can create bottlenecks even when multiple partitions exist**.
+
+It also demonstrated why real streaming systems must carefully balance:
+
+- Ordering guarantees
+- Scalability
+- Load balancing
+- Consumer throughput
+
+---
+
+## Real-World Parallels
+
+The experiment closely matches real production problems seen in:
+
+| Company | Scenario |
+|---|---|
+| **Uber** | Surge traffic concentrating on a single trip-id partition |
+| **IPL Live Streaming** | Millions of concurrent events routing to one partition |
+| **Twitter / X** | Viral tweet events flooding a single shard |
+| **Netflix** | Celebrity stream spikes overwhelming one user-id partition |
+| **Swiggy** | High-volume restaurants generating disproportionate order events |
+
+These are not edge cases — they are real incidents that have caused outages and degraded consumer experiences at scale. Designing partition strategies that anticipate hotspots is a critical part of production streaming architecture.

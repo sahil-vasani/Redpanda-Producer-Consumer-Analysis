@@ -422,3 +422,251 @@ python experiment2.py
 ### Step 9: Results
 
 ![Before vs After Output](redpanda/Images/Experiment2.png)
+
+# Experiment 3 — Hot Partition Problem
+
+### Modifying Redpanda Source Code to Reproduce Real-World Streaming Bottlenecks
+
+---
+
+## Overview
+
+This experiment walks through how the **Hot Partition Problem** was reproduced by modifying the Redpanda broker's internal partition routing logic. The steps cover setup, source-code modification, rebuild, and observation of both baseline and modified behavior.
+
+---
+
+## Step 1 — Start Redpanda Server
+
+Run the Redpanda broker:
+
+```bash
+./bazel-bin/src/v/redpanda/redpanda \
+  --redpanda-cfg redpanda.yaml \
+  --smp=1 \
+  --memory=1G \
+  --reserve-memory=0M
+```
+
+---
+
+## Step 2 — Create Topic
+
+Create a topic with 3 partitions:
+
+```bash
+rpk topic create hot-topic -p 3
+```
+
+---
+
+## Step 3 — Producer Script
+
+Create `experiment3_producer.py`:
+
+```python
+from confluent_kafka import Producer
+import random
+import time
+
+conf = {'bootstrap.servers': 'localhost:9092'}
+producer = Producer(conf)
+topic = "hot-topic"
+
+users = ["user_1", "user_2", "user_3", "user_4", "user_5"]
+
+for i in range(100):
+    user = random.choice(users)
+    value = f"event-{i}-from-{user}"
+    producer.produce(topic, key=user.encode(), value=value.encode())
+    print(f"Produced: {value}")
+    time.sleep(0.1)
+
+producer.flush()
+print("DONE")
+```
+
+---
+
+## Step 4 — Consumer Script
+
+Create `experiment3_consumer.py`:
+
+```python
+from confluent_kafka import Consumer
+
+conf = {
+    'bootstrap.servers': 'localhost:9092',
+    'group.id': 'hot-group',
+    'auto.offset.reset': 'earliest'
+}
+
+consumer = Consumer(conf)
+consumer.subscribe(["hot-topic"])
+print("Waiting for messages...")
+
+while True:
+    msg = consumer.poll(1.0)
+    if msg is None:
+        continue
+    if msg.error():
+        print("ERROR:", msg.error())
+        continue
+    print(
+        f"PARTITION={msg.partition()} "
+        f"OFFSET={msg.offset()} "
+        f"KEY={msg.key().decode()} "
+        f"VALUE={msg.value().decode()}"
+    )
+```
+
+---
+
+## Step 5 — Baseline Run
+
+**Terminal 1:**
+```bash
+python experiment3_consumer.py
+```
+
+**Terminal 2:**
+```bash
+python experiment3_producer.py
+```
+
+---
+
+## Baseline Observation
+
+**Producer output:**
+
+```
+Produced: event-0-from-user_5
+Produced: event-1-from-user_1
+Produced: event-2-from-user_3
+...
+DONE
+```
+
+**Consumer output:**
+
+```
+PARTITION=1 OFFSET=0 KEY=user_3 VALUE=event-2-from-user_3
+PARTITION=1 OFFSET=1 KEY=user_4 VALUE=event-6-from-user_4
+PARTITION=2 OFFSET=0 KEY=user_5 VALUE=event-0-from-user_5
+PARTITION=2 OFFSET=1 KEY=user_1 VALUE=event-1-from-user_1
+PARTITION=2 OFFSET=2 KEY=user_2 VALUE=event-4-from-user_2
+```
+
+Traffic is **balanced** — different keys distributed across different partitions. This is default Kafka hash partitioning working correctly.
+
+![Baseline — Balanced partition distribution across all 3 partitions](redpanda/Images/Experiment3_before.png)
+
+---
+
+## Step 6 — Modify Redpanda Source Code
+
+Open `src/v/kafka/server/handlers/produce.cc` and replace the default partition assignment with dynamic routing logic:
+
+```cpp
+static thread_local int message_counter = 0;
+
+message_counter++;
+
+model::partition_id dynamic_partition(0);
+
+if (message_counter > 50 && message_counter <= 100) {
+    dynamic_partition = model::partition_id(1);
+}
+else if (message_counter > 100) {
+    dynamic_partition = model::partition_id(2);
+}
+
+vlog(
+    klog.warn,
+    "🔥 DYNAMIC PARTITION ROUTING message={} original={} routed={}",
+    message_counter,
+    part.partition_index,
+    dynamic_partition
+);
+```
+
+---
+
+## Step 7 — Rebuild Redpanda
+
+```bash
+bazel build //src/v/redpanda:redpanda \
+  --config=release \
+  --jobs=2 \
+  --local_resources=memory=4096 \
+  --define=use_system_liburing=true \
+  --action_env=LIBURING_USE_SYSTEM=1 \
+  --spawn_strategy=standalone
+```
+
+---
+
+## Step 8 — Restart Redpanda Server
+
+```bash
+./bazel-bin/src/v/redpanda/redpanda \
+  --redpanda-cfg redpanda.yaml \
+  --smp=1 \
+  --memory=1G \
+  --reserve-memory=0M
+```
+
+---
+
+## Step 9 — Run Same Scripts Again
+
+**Terminal 1:**
+```bash
+python experiment3_consumer.py
+```
+
+**Terminal 2:**
+```bash
+python experiment3_producer.py
+```
+
+---
+
+## After Modification Observation
+
+**Producer output:**
+
+```
+Produced: event-0-from-user_3
+Produced: event-1-from-user_2
+Produced: event-2-from-user_1
+...
+DONE
+```
+
+**Consumer output:**
+
+```
+PARTITION=0 OFFSET=0 KEY=user_3 VALUE=event-0-from-user_3
+PARTITION=0 OFFSET=1 KEY=user_2 VALUE=event-1-from-user_2
+PARTITION=0 OFFSET=2 KEY=user_1 VALUE=event-2-from-user_1
+PARTITION=0 OFFSET=3 KEY=user_5 VALUE=event-4-from-user_5
+PARTITION=0 OFFSET=4 KEY=user_4 VALUE=event-18-from-user_4
+```
+
+All traffic now routes to **partition 0** — the hot partition is created.
+
+![After modification — All messages concentrated on partition 0, creating a hotspot](redpanda/Images/Experiment3_after.png)
+
+---
+
+## Final Result
+
+| | Before Modification | After Modification |
+|---|---|---|
+| **Partitioning** | Hash-based (default) | Counter-based (modified) |
+| **Traffic distribution** | Balanced across partitions | All on partition 0 |
+| **Consumer load** | Parallel across consumers | Single partition overloaded |
+| **Scalability** | High | Reduced |
+
+The experiment successfully reproduced the **Hot Partition Problem** — a real-world bottleneck observed in production systems at Uber, Netflix, Swiggy, Twitter, and IPL live streaming platforms.

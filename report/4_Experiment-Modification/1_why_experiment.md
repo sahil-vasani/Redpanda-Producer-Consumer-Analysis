@@ -41,3 +41,127 @@ The goal of this experiment is to modify the Redpanda broker (C++ source code) t
 2. Log duplicate occurrences
 
 This helps us understand how duplicate handling can be implemented at the broker level and its impact on system behavior.
+
+# Experiment 3 — Hot Partition Problem
+
+## Hash Key → Round-Robin
+
+---
+
+## Why Hash Partitioning Exists
+
+Modern streaming systems like Kafka and Redpanda use hash partitioning:
+
+```
+hash(key) % number_of_partitions
+```
+
+This means the **same key always goes to the same partition**. Companies use this because event order is important.
+
+---
+
+## Real-Life Example
+
+Swiggy / Zomato use `order_id` as the partition key, so events remain ordered:
+
+```
+order_created
+food_prepared
+delivery_started
+delivered
+```
+
+This is critical — if events go randomly, food may appear `"delivered"` before `"prepared"`.
+
+Similarly:
+
+- **Banking** uses `account_id`
+- **Uber** uses `trip_id`
+- **Netflix** uses `user_id`
+
+---
+
+## The Hot Partition Problem
+
+Hash partitioning creates a real problem called:
+
+```
+HOT PARTITION PROBLEM
+```
+
+Suppose one key becomes extremely popular:
+
+```
+IPL_FINAL
+celebrity_stream
+viral_restaurant
+```
+
+Now **millions of events go to the same partition**.
+
+---
+
+## Before vs After Modification
+
+**Before modification** — traffic was balanced across partitions:
+
+```
+PARTITION=1 KEY=user_3
+PARTITION=2 KEY=user_1
+PARTITION=0 KEY=user_5
+```
+
+**After broker modification** — all traffic went to one partition, creating a hotspot:
+
+```
+PARTITION=0 KEY=user_3
+PARTITION=0 KEY=user_2
+PARTITION=0 KEY=user_1
+```
+
+---
+
+## Consequences of a Hot Partition
+
+- Consumer lag increases
+- One broker shard becomes overloaded
+- Uneven CPU usage across nodes
+- Slow analytics and degraded throughput
+
+---
+
+## Solutions Used in Production
+
+To solve this problem, some streaming systems use:
+
+- **Round-robin routing** — cycles through partitions evenly
+- **Random partitioning** — spreads traffic without any key affinity
+- **Dynamic routing** — adjusts based on real-time load
+
+This improves load balancing because traffic spreads across partitions instead of concentrating in one place.
+
+---
+
+## When Round-Robin / Random Partitioning Is Used
+
+Round-robin and random partitioning are commonly used in:
+
+- Server logs
+- Monitoring systems
+- Telemetry pipelines
+- Clickstream analytics
+
+...because **strict ordering is less important than scalability and throughput** in these use cases.
+
+---
+
+## The Core Tradeoff
+
+This experiment demonstrates the fundamental tradeoff between:
+
+| Approach | Benefit | Cost |
+|---|---|---|
+| **Hash partitioning** | Ordering guarantees | Risk of hot partitions |
+| **Round-robin / Random** | Scalability and load balancing | No per-key ordering |
+
+Understanding this tradeoff is essential for designing high-throughput, fault-tolerant streaming pipelines.
