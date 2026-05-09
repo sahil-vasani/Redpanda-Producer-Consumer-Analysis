@@ -562,38 +562,69 @@ Traffic is **balanced** — different keys distributed across different partitio
 ![Baseline — Balanced partition distribution across all 3 partitions](redpanda/Images/Experiment3_before.png)
 
 ---
-
+  
 ## Step 6 — Modify Redpanda Source Code
 
-Open `src/v/kafka/server/handlers/produce.cc` and replace the default partition assignment with dynamic routing logic:
-```Find this and comment :```
-```cpp    
-    auto ntp = model::ntp(
-      model::kafka_namespace, topic.name, part.partition_index);
-      ```
-```below this add this``` 
+Open the following file:
+
+```bash
+src/v/kafka/server/handlers/produce.cc
+```
+
+Locate the existing partition assignment code:
+
 ```cpp
+auto ntp = model::ntp(
+    model::kafka_namespace,
+    topic.name,
+    part.partition_index);
+```
+
+Comment out the original code:
+
+```cpp
+// auto ntp = model::ntp(
+//     model::kafka_namespace,
+//     topic.name,
+//     part.partition_index);
+```
+
+Now add the following dynamic partition routing logic below it:
+
+```cpp
+// ----------------------------------------------------
+// Dynamic Partition Routing Logic
+// ----------------------------------------------------
+
 static thread_local int message_counter = 0;
 
 message_counter++;
 
 model::partition_id dynamic_partition(0);
 
+// Route messages dynamically based on count
 if (message_counter > 50 && message_counter <= 100) {
     dynamic_partition = model::partition_id(1);
-}
-else if (message_counter > 100) {
+} else if (message_counter > 100) {
     dynamic_partition = model::partition_id(2);
 }
 
+// Create NTP using dynamically selected partition
+auto ntp = model::ntp(
+    model::kafka_namespace,
+    topic.name,
+    dynamic_partition);
+
+// Debug logging
 vlog(
     klog.warn,
-    "🔥 DYNAMIC PARTITION ROUTING message={} original={} routed={}",
+    "🔥 DYNAMIC PARTITION ROUTING "
+    "message={} original={} routed={}",
     message_counter,
     part.partition_index,
-    dynamic_partition
-);
+    dynamic_partition);
 ```
+  
 
 ---
 
