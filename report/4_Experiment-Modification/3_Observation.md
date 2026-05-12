@@ -141,3 +141,86 @@ The experiment closely matches real production problems seen in:
 | **Swiggy** | High-volume restaurants generating disproportionate order events |
 
 These are not edge cases — they are real incidents that have caused outages and degraded consumer experiences at scale. Designing partition strategies that anticipate hotspots is a critical part of production streaming architecture.
+
+# 📋 Observation — Experiment 4 Duplicate & Failed Events storing in Streaming Systems
+
+---
+
+## 🔬 What We Observed
+
+### ❌ Before Modification
+
+Redpanda processed **duplicate events normally** without any detection.
+
+If the producer sent:
+
+```
+payment_1
+payment_2
+payment_1   ← duplicate
+```
+
+The consumer **also received the duplicate**, meaning:
+
+- ❌ Duplicate events **remained in the main stream**
+- ❌ **No retry or failed-event storage** existed
+- ❌ **Duplicate processing could happen** downstream
+
+---
+
+### ✅ After Modification
+
+Duplicate events were **detected inside the producer path** and **removed from the main stream**.
+
+Now:
+
+- ✅ Consumer **only received unique events**
+- ✅ Duplicate events were **stored separately** in:
+
+```
+failed_events.avro
+```
+
+> This simulates the **lightweight retry / DLQ storage** pattern used in real streaming systems.
+
+---
+
+## 🌍 Real-Life Example — Swiggy Payment Service
+
+> Suppose the **Swiggy payment service** receives duplicate payment events because of **network retry issues**.
+
+### Without This System
+
+| Problem | Consequence |
+|---|---|
+| **Processing duplicate payments** | Financial errors, customer overcharges |
+| **Losing failed events** | No way to recover or audit |
+
+### With This System
+
+| Action | Benefit |
+|---|---|
+| **Retry** | Re-process stored duplicate events safely |
+| **Auditing** | Full trace of what was duplicated and when |
+| **Recovery** | Restore any missed or failed event reliably |
+
+---
+
+## 📈 Business Impact
+
+This approach helps companies:
+
+| Benefit | Description |
+|---|---|
+| **Reduce data loss** | No events are permanently dropped |
+| **Avoid duplicate processing** | Only unique events flow through the pipeline |
+| **Maintain reliable streaming** | System stays consistent even under network failures |
+| **Store failed events cheaply** | Compact Avro-style storage keeps costs low |
+
+---
+
+## 🎯 Key Takeaway
+
+> By intercepting duplicates **at the producer path** and writing them to a lightweight file-based store, we build a **production-grade recovery pattern** without the cost and complexity of a full Dead Letter Queue infrastructure.
+
+This experiment proves that **simple, targeted modifications** to the Redpanda producer handler can dramatically improve the **reliability, auditability, and recoverability** of streaming pipelines.

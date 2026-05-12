@@ -34,6 +34,7 @@
 
 #include <chrono>
 #include <exception>
+#include <fstream>
 #include <functional>
 
 namespace kafka {
@@ -273,15 +274,35 @@ ss::future<produce_response::partition> do_produce_topic_partition(
             ss::sstring key_str(tmp);
 
             if (seen_keys.contains(key_str)) {
-                vlog(klog.info,
-                    "🚫 DUPLICATE SKIPPED: ntp={} key='{}'",
-                    req.ntp, key_str);
+
+                vlog(
+                    klog.warn,
+                    "🚫 DUPLICATE DETECTED: ntp={} key='{}'",
+                    req.ntp,
+                    key_str
+                );
+
+                std::ofstream retry_file(
+                    "failed_events.avro",
+                    std::ios::app | std::ios::binary
+                );
+
+                retry_file
+                    << "{"
+                    << "\"event_type\":\"DUPLICATE\","
+                    << "\"key\":\"" << key_str << "\","
+                    << "\"topic\":\"" << req.ntp.tp.topic() << "\""
+                    << "}"
+                    << std::endl;
+
+                retry_file.close();
 
                 co_return finalize_request_with_error_code(
                     error_code::none,
                     std::move(dispatched),
                     req.ntp,
-                    ss::this_shard_id());
+                    ss::this_shard_id()
+                );
             }
 
             seen_keys.insert(key_str);
@@ -456,14 +477,12 @@ partition_produce_stages produce_topic_partition(
   produce_request::topic& topic,
   produce_request::partition& part,
   const topic_configuration_context& cfg_ctx) {
-
-// ----------------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------------
     // by default hash key logic
     // auto ntp = model::ntp(
     //   model::kafka_namespace, topic.name, part.partition_index);
 
-
-    //Experiment -3 (Round-Robin)
+    //Experiment -3 (Round-Rbin)
     static thread_local int message_counter = 0;
 
     message_counter++;
@@ -484,7 +503,13 @@ partition_produce_stages produce_topic_partition(
         part.partition_index,
         dynamic_partition
     );
-// --------------------------------------------------------------------------------------------
+
+    auto ntp = model::ntp(
+    model::kafka_namespace,
+    topic.name,
+    dynamic_partition
+    );
+// ------------------------------------------------------------------------------------
     auto validator
       = pandaproxy::schema_registry::maybe_make_schema_id_validator(
         octx.rctx.schema_registry(), topic.name, *cfg_ctx.properties);

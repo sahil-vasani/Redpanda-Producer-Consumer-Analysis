@@ -42,7 +42,7 @@ bazel build //src/v/redpanda:redpanda \
 
 ### Step 3: Create Python Test File (Before Changes)
 
-Create file: `nano experiment_before.py`
+Create file: `nano experiment1_before.py`
 
 ```python
 from kafka import KafkaProducer, KafkaConsumer
@@ -112,7 +112,7 @@ run_test(1100)
 ### Step 4: Run and Note Output
 
 ```bash
-python experiment_before.py
+python experiment1_before.py
 ```
 
 > Note down the output, then press `Ctrl+C` in the Step 2 terminal.
@@ -186,7 +186,7 @@ bazel build //src/v/redpanda:redpanda \
 
 ### Step 8: Create Python Test File (After Changes)
 
-Create file: `nano experiment_after.py`
+Create file: `nano experiment1_after.py`
 
 ```python
 from kafka import KafkaProducer, KafkaConsumer
@@ -258,7 +258,7 @@ run_test(1100)
 ### Step 9: Run and Compare
 
 ```bash
-python experiment_after.py
+python experiment1_after.py
 ```
 
 > Note down the output and compare with the before results.
@@ -698,3 +698,286 @@ All traffic now routes to **partition 0** — the hot partition is created.
 
 
 The experiment successfully reproduced the **Hot Partition Problem** — a real-world bottleneck observed in production systems at Uber, Netflix, Swiggy, Twitter, and IPL live streaming platforms.
+
+# 🧪 Experiment 4 — Duplicate & Failed Events storing in Streaming Systems
+
+---
+
+## 🗂️ Overview
+
+> **Goal:** Build a lightweight failed-event retry storage system inside Redpanda using an Avro-style file (`failed_events.avro`) to capture duplicate events that would otherwise be lost.
+
+---
+
+## ⚙️ Step 1 — Start Redpanda
+
+Run the following command to start the Redpanda server:
+
+```bash
+./bazel-bin/src/v/redpanda/redpanda \
+  --redpanda-cfg redpanda.yaml \
+  --smp=1 \
+  --memory=1G \
+  --reserve-memory=0M
+```
+
+---
+
+## 📁 Step 2 — Create Topic
+
+```bash
+rpk topic create retry-topic -p 3
+```
+
+> **⚠️ Important:** By default, **Redpanda does NOT store failed or duplicate events separately.**
+> In this experiment we create a **lightweight failed-event retry storage** using `failed_events.avro`.
+
+---
+
+## 🐍 Step 3 — Create Producer
+
+```bash
+nano experiment4_producer.py
+```
+
+**Paste the following code:**
+
+```python
+from confluent_kafka import Producer
+import time
+
+conf = {
+    'bootstrap.servers': 'localhost:9092'
+}
+
+producer = Producer(conf)
+topic = "retry-topic"
+
+messages = [
+    "payment_1", "payment_2", "payment_1",
+    "payment_3", "payment_2", "payment_4"
+]
+
+for msg in messages:
+    producer.produce(
+        topic,
+        key=msg.encode(),
+        value=msg.encode()
+    )
+    print(f"Produced: {msg}")
+    time.sleep(1)
+
+producer.flush()
+print("DONE")
+```
+
+> **Note:** The message list intentionally includes **duplicates** (`payment_1`, `payment_2` appear twice) to simulate real-world network retry scenarios.
+
+---
+
+## 🐍 Step 4 — Create Consumer
+
+```bash
+nano experiment4_consumer.py
+```
+
+**Paste the following code:**
+
+```python
+from confluent_kafka import Consumer
+
+conf = {
+    'bootstrap.servers': 'localhost:9092',
+    'group.id': 'retry-group',
+    'auto.offset.reset': 'earliest'
+}
+
+consumer = Consumer(conf)
+consumer.subscribe(["retry-topic"])
+
+print("Waiting for messages...")
+
+while True:
+    msg = consumer.poll(1.0)
+
+    if msg is None:
+        continue
+
+    if msg.error():
+        print("ERROR:", msg.error())
+        continue
+
+    print(
+        f"PARTITION={msg.partition()} "
+        f"OFFSET={msg.offset()} "
+        f"VALUE={msg.value().decode()}"
+    )
+```
+
+---
+
+## 🛠️ Step 5 — Modify `produce.cc`
+
+```bash
+nano src/v/kafka/server/handlers/produce.cc
+```
+
+### ➕ Add Header
+
+```cpp
+#include <fstream>
+```
+
+---
+
+### 🔍 Find Duplicate Detection Block
+
+**Find this existing block:**
+
+```cpp
+if (seen_keys.contains(key_str)) {
+```
+
+### ✏️ Replace Entire Block With
+
+```cpp
+if (seen_keys.contains(key_str)) {
+
+    vlog(
+        klog.warn,
+        "🚫 DUPLICATE DETECTED: ntp={} key='{}'",
+        req.ntp,
+        key_str
+    );
+
+    std::ofstream retry_file(
+        "failed_events.avro",
+        std::ios::app | std::ios::binary
+    );
+
+    retry_file
+        << "{"
+        << "\"event_type\":\"DUPLICATE\","
+        << "\"key\":\"" << key_str << "\","
+        << "\"topic\":\"" << req.ntp.tp.topic() << "\""
+        << "}"
+        << std::endl;
+
+    retry_file.close();
+
+    co_return finalize_request_with_error_code(
+        error_code::none,
+        std::move(dispatched),
+        req.ntp,
+        ss::this_shard_id()
+    );
+
+}
+```
+---
+
+## 🔨 Step 7 — Rebuild Redpanda
+
+```bash
+bazel build //src/v/redpanda:redpanda \
+  --config=release \
+  --jobs=2 \
+  --local_resources=memory=4096 \
+  --define=use_system_liburing=true \
+  --action_env=LIBURING_USE_SYSTEM=1 \
+  --spawn_strategy=standalone
+```
+
+---
+
+## 🔁 Step 8 — Restart Redpanda Server
+
+```bash
+./bazel-bin/src/v/redpanda/redpanda \
+  --redpanda-cfg redpanda.yaml \
+  --smp=1 \
+  --memory=1G \
+  --reserve-memory=0M
+```
+
+---
+
+## ▶️ Step 9 — Run Python Files
+
+| Terminal | Command |
+|---|---|
+| **Terminal 1** | `python experiment4_consumer.py` |
+| **Terminal 2** | `python experiment4_producer.py` |
+
+---
+
+## ✅ Expected Output After Modification
+
+### Producer Output
+
+![Producer Output](redpanda/Images/Experiment4_producer.png)
+
+Producer sends duplicate events:
+
+- `payment_1`
+- `payment_2`
+- `payment_1`
+- `payment_2`
+
+---
+
+### Consumer Output
+
+![Consumer Output](redpanda/Images/Experiment4_consumer.png)
+
+Consumer receives only unique events:
+
+```text
+VALUE=payment_1
+VALUE=payment_2
+VALUE=payment_3
+VALUE=payment_4
+
+> **Duplicate events are removed from the main stream.**
+
+---
+
+## 🔎 Step 10 — Verify Failed Event Storage
+
+**Check that the file exists:**
+
+```bash
+ls
+```
+
+You should now see:
+
+```
+failed_events.avro
+```
+
+
+```bash
+cat failed_events.avro
+```
+
+**Expected output:**
+
+```json
+{"event_type":"DUPLICATE","key":"payment_1","topic":"retry-topic"}
+{"event_type":"DUPLICATE","key":"payment_2","topic":"retry-topic"}
+```
+### Avro Output
+
+![Consumer Output](redpanda/Images/Experiment4_file.png)
+
+---
+
+## 📊 Final Result Summary
+
+| State | Behaviour |
+|---|---|
+| **Before modification** | Duplicate events remained in stream; no retry storage; failed events could be lost |
+| **After modification** | Duplicates detected & removed from main stream; failed events stored safely in Avro-style retry storage |
+
+> This simulates **real-world lightweight Dead Letter Queue (DLQ) and retry architectures** used in production streaming systems.

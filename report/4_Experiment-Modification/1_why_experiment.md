@@ -144,3 +144,73 @@ This experiment demonstrates the fundamental tradeoff between:
 | **Round-robin / Random** | Scalability and load balancing | No per-key ordering |
 
 Understanding this tradeoff is essential for designing high-throughput, fault-tolerant streaming pipelines.
+
+## Experiment 4:Duplicate & Failed Events storing in Streaming Systems
+
+# 📌 Why We Do This Experiment
+
+---
+
+## 🔍 The Problem — Duplicate & Failed Events in Streaming Systems
+
+In **real streaming systems**, duplicate or failed events are very common because of:
+
+- **Network retry issues**
+- **Temporary server failures**
+- **Producer resend operations**
+- **Consumer timeout problems**
+
+> By default, **Redpanda / Kafka does not separately store** duplicate or failed events in lightweight recovery storage.
+
+---
+
+## ⚠️ Consequences of No Retry Storage
+
+This gap can cause serious real-world problems:
+
+| Problem | Impact |
+|---|---|
+| **Duplicate payment processing** | Financial inconsistency |
+| **Repeated notifications** | Poor user experience |
+| **Lost retry events** | Data loss in pipelines |
+| **Unreliable analytics** | Incorrect business insights |
+
+---
+
+## 💡 Our Solution — Lightweight Retry Storage
+
+In this experiment, we create a **lightweight retry-storage system** using:
+
+```
+failed_events.avro
+```
+
+Instead of losing duplicate events, the system stores them safely for:
+
+- ✅ **Retry** — re-process failed events later
+- ✅ **Auditing** — keep a trace of what went wrong
+- ✅ **Recovery** — restore lost data reliably
+
+---
+
+## 🌍 Real-Life Example — Swiggy Payment Service
+
+> Suppose the **Swiggy payment service** receives duplicate payment events due to **network retries**.
+
+### ❌ Without Retry Storage
+
+- Duplicate events may be **lost permanently**
+- **Debugging becomes difficult**
+- **Recovery is harder** and expensive
+
+### ✅ With Lightweight Avro-Style Storage
+
+- Duplicate events are **preserved safely**
+- **Storage cost remains low**
+- Failed events can be **retried later** with confidence
+
+---
+
+## 🎯 Conclusion
+
+This experiment demonstrates how streaming systems can build **low-cost, lightweight recovery pipelines** instead of relying only on expensive **Dead Letter Queue (DLQ)** infrastructure.
