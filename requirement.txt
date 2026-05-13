@@ -1,0 +1,37 @@
+# ==========================================
+# Telecom Copilot / Redpanda Experiments
+# Python Requirements
+# ==========================================
+
+# Kafka Client (Experiment 1 & 2)
+kafka-python==2.0.2
+
+# High-performance Kafka Client (Experiment 3 & 4)
+confluent-kafka==2.3.0
+
+# Optional utilities
+uuid==1.30
+
+# JSON handling (built into Python, listed for clarity)
+# json
+
+# Timing utilities (built into Python)
+# time
+
+# Random utilities (built into Python)
+# random
+
+# File handling (built into Python)
+# os
+
+# Avro-style failed-event storage support
+fastavro==1.9.4
+
+# Logging / debugging helpers
+rich==13.7.1
+
+# Optional data analysis
+pandas==2.2.2
+
+# Optional visualization
+matplotlib==3.8.4
