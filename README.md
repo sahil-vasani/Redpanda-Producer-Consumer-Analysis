@@ -132,6 +132,7 @@ Redpanda-Producer-Consumer-Analysis/
 │   │
 │   └── Images/                        ← Screenshots of experiment outputs
 │       ├── Experiment1.png
+        ├── Experiment2.png
 │       ├── Experiment3_before.png
 │       ├── Experiment3_after.png
 │       ├── Experiment4_producer.png
