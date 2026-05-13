@@ -494,7 +494,7 @@ These are real failure modes in production Redpanda / Kafka deployments — not 
 - Raj Nakrani
 
 **Mentor**
-- Dr. Ankush Chander
+- Prof. Ankush Chander
 
 ---
 
